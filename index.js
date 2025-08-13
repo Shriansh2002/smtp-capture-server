@@ -1,90 +1,94 @@
-require("dotenv").config();
-const { SMTPServer } = require("smtp-server");
+const SMTPServer = require("smtp-server").SMTPServer;
 const { simpleParser } = require("mailparser");
 const fs = require("fs");
 const path = require("path");
+const mkdirp = require("mkdirp");
 
-// Config
-const MAIL_DIR = process.env.MAIL_DIR || path.join(__dirname, "emails");
-const SMTP_PORT = process.env.SMTP_PORT || 25;
-
-// Ensure mail storage directory exists
-if (!fs.existsSync(MAIL_DIR)) {
-	fs.mkdirSync(MAIL_DIR, { recursive: true });
-}
-
-function tooManyConnectionsFrom(ip) {
-	// Example: block if >5 connections from same IP in 1 min (implement if needed)
-	return false;
-}
+mkdirp.sync("emails/raw");
+mkdirp.sync("emails/parsed");
+mkdirp.sync("emails/attachments");
+mkdirp.sync("emails/errors");
 
 const server = new SMTPServer({
-	allowInsecureAuth: true,
 	authOptional: true,
-	maxClients: 10,
+	onData(stream, session, callback) {
+		let rawChunks = [];
+		stream.on("data", (chunk) => rawChunks.push(chunk));
 
-	onConnect(session, cb) {
-		if (tooManyConnectionsFrom(session.remoteAddress)) {
-			return cb(new Error("Too many connections from this IP"));
-		}
-		console.log(`📡 Connection from ${session.remoteAddress}`);
-		cb();
-	},
+		stream.on("end", async () => {
+			// Unique email ID: timestamp + random string
+			const emailId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+			const rawPath = path.join("emails/raw", `${emailId}.eml`);
+			const parsedPath = path.join("emails/parsed", `${emailId}.json`);
+			const attachmentsDir = path.join("emails/attachments", emailId);
+			mkdirp.sync(attachmentsDir);
 
-	onMailFrom(address, session, cb) {
-		console.log(`📧 MAIL FROM: ${address.address}`);
-		cb();
-	},
+			try {
+				const rawEmail = Buffer.concat(rawChunks);
 
-	onRcptTo(address, session, cb) {
-		console.log(`➡️ RCPT TO: ${address.address}`);
-		cb();
-	},
+				// Save raw email
+				fs.writeFileSync(rawPath, rawEmail);
 
-	onData(stream, session, cb) {
-		const fileName = `${Date.now()}-${session.id}.eml`;
-		const filePath = path.join(MAIL_DIR, fileName);
+				// Parse email
+				const parsed = await simpleParser(rawEmail);
 
-		const fileWriteStream = fs.createWriteStream(filePath);
-		stream.pipe(fileWriteStream);
+				// Save parsed JSON
+				fs.writeFileSync(
+					parsedPath,
+					JSON.stringify(
+						{
+							id: emailId,
+							from: parsed.from?.text,
+							to: parsed.to?.text,
+							subject: parsed.subject,
+							date: parsed.date,
+							text: parsed.text,
+							html: parsed.html,
+							attachments: parsed.attachments.map((att) => ({
+								filename: att.filename,
+								contentType: att.contentType,
+								size: att.size,
+							})),
+						},
+						null,
+						2
+					)
+				);
 
-		fileWriteStream.on("error", (err) => {
-			console.error(`❌ File write error: ${err}`);
-			cb(err);
-		});
-
-		// Parse stream without buffering entire message into memory
-		simpleParser(stream, {})
-			.then((parsed) => {
-				console.log("=== 📬 NEW EMAIL ===");
-				console.log("From:", parsed.from?.text || "Unknown");
-				console.log("To:", parsed.to?.text || "Unknown");
-				console.log("Subject:", parsed.subject || "No Subject");
-				console.log("Date:", parsed.date || new Date());
-				console.log("Message ID:", parsed.messageId || "No ID");
-
-				if (parsed.text)
-					console.log("Text Body:", parsed.text.substring(0, 200) + "...");
-				if (parsed.html) console.log("HTML Body: [HTML content detected]");
-
-				if (parsed.attachments?.length > 0) {
-					console.log(`Attachments: ${parsed.attachments.length}`);
-					parsed.attachments.forEach((att, idx) => {
-						console.log(`  ${idx + 1}. ${att.filename} (${att.contentType})`);
-					});
+				// Save attachments in dedicated folder
+				for (const att of parsed.attachments) {
+					const filename =
+						att.filename ||
+						`attachment-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+					const attachmentPath = path.join(attachmentsDir, filename);
+					fs.writeFileSync(attachmentPath, att.content);
 				}
 
-				console.log(`📂 Saved raw email to ${filePath}`);
-				console.log("==================");
-				cb();
-			})
-			.catch((error) => {
-				console.error("❌ Error parsing email:", error);
-				cb(error);
-			});
+				console.log(`✅ Email saved: ${parsed.subject || "No Subject"}`);
+				callback();
+			} catch (err) {
+				console.error(`❌ Parsing failed for email ${emailId}:`, err);
+
+				// Save error details
+				fs.writeFileSync(
+					path.join("emails/errors", `${emailId}.error.json`),
+					JSON.stringify(
+						{
+							id: emailId,
+							error: err.message,
+							stack: err.stack,
+						},
+						null,
+						2
+					)
+				);
+
+				callback(err);
+			}
+		});
 	},
 });
 
-server.listen(SMTP_PORT, () =>
-	console.log(`🚀 SMTP Server running at port ${SMTP_PORT}`)
-);
+server.listen(25, "0.0.0.0", () => {
+	console.log("📬 SMTP Server running on port 25");
+});
