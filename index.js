@@ -1,22 +1,47 @@
+// -------------------- IMPORTS --------------------
 const SMTPServer = require("smtp-server").SMTPServer;
 const { simpleParser } = require("mailparser");
 const fs = require("fs");
 const path = require("path");
 const mkdirp = require("mkdirp");
+const express = require("express");
+const cors = require("cors");
+const nodemailer = require("nodemailer");
+const multer = require("multer");
 
+// -------------------- USER CONFIGURATION --------------------
+const USERS = {
+	"user_a@domain.com": { password: "password_a" },
+	"user_b@domain.com": { password: "password_b" },
+	// Add more users as needed
+};
+
+// -------------------- CREATE DIRECTORIES --------------------
 mkdirp.sync("emails/raw");
-mkdirp.sync("emails/parsed");
-mkdirp.sync("emails/attachments");
+mkdirp.sync("emails/parsed"); // received emails
+mkdirp.sync("emails/attachments"); // received email attachments
 mkdirp.sync("emails/errors");
+mkdirp.sync("emails/sent"); // sent emails
+mkdirp.sync("emails/sent_attachments"); // sent email attachments
 
-const server = new SMTPServer({
-	authOptional: true,
+// -------------------- SMTP SERVER (RECEIVING) --------------------
+const smtpServer = new SMTPServer({
+	authOptional: false, // Require authentication
+	onAuth(auth, session, callback) {
+		const { username, password } = auth;
+
+		if (USERS[username] && USERS[username].password === password) {
+			session.user = username;
+			callback(null, { user: username });
+		} else {
+			callback(new Error("Invalid username or password"));
+		}
+	},
 	onData(stream, session, callback) {
 		let rawChunks = [];
 		stream.on("data", (chunk) => rawChunks.push(chunk));
 
 		stream.on("end", async () => {
-			// Unique email ID: timestamp + random string
 			const emailId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 			const rawPath = path.join("emails/raw", `${emailId}.eml`);
 			const parsedPath = path.join("emails/parsed", `${emailId}.json`);
@@ -25,19 +50,17 @@ const server = new SMTPServer({
 
 			try {
 				const rawEmail = Buffer.concat(rawChunks);
-
-				// Save raw email
 				fs.writeFileSync(rawPath, rawEmail);
 
-				// Parse email
 				const parsed = await simpleParser(rawEmail);
 
-				// Save parsed JSON
 				fs.writeFileSync(
 					parsedPath,
 					JSON.stringify(
 						{
 							id: emailId,
+							type: "received",
+							user: session.user, // Add user information
 							from: parsed.from?.text,
 							to: parsed.to?.text,
 							subject: parsed.subject,
@@ -55,26 +78,28 @@ const server = new SMTPServer({
 					)
 				);
 
-				// Save attachments in dedicated folder
+				// Save attachments
 				for (const att of parsed.attachments) {
 					const filename =
 						att.filename ||
 						`attachment-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-					const attachmentPath = path.join(attachmentsDir, filename);
-					fs.writeFileSync(attachmentPath, att.content);
+					fs.writeFileSync(path.join(attachmentsDir, filename), att.content);
 				}
 
-				console.log(`✅ Email saved: ${parsed.subject || "No Subject"}`);
+				console.log(
+					`✅ Email received for ${session.user}: ${
+						parsed.subject || "No Subject"
+					}`
+				);
 				callback();
 			} catch (err) {
-				console.error(`❌ Parsing failed for email ${emailId}:`, err);
-
-				// Save error details
+				console.error(`❌ Parsing failed for ${emailId}:`, err);
 				fs.writeFileSync(
 					path.join("emails/errors", `${emailId}.error.json`),
 					JSON.stringify(
 						{
 							id: emailId,
+							user: session.user,
 							error: err.message,
 							stack: err.stack,
 						},
@@ -89,6 +114,275 @@ const server = new SMTPServer({
 	},
 });
 
-server.listen(25, "0.0.0.0", () => {
+smtpServer.listen(25, "0.0.0.0", () => {
 	console.log("📬 SMTP Server running on port 25");
+});
+
+// -------------------- EXPRESS API --------------------
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// -------------------- HELPER FUNCTIONS --------------------
+function normalizeEmail(email) {
+	if (!email) return "";
+
+	email = email.replace(/"/g, "");
+
+	const match = email.match(/<(.+?)>/);
+	if (match) {
+		return match[1];
+	}
+
+	return email.trim();
+}
+
+function getEmailsByUserAndType(user, type) {
+	const directory = type === "sent" ? "emails/sent" : "emails/parsed";
+	const files = fs.readdirSync(directory).filter((f) => f.endsWith(".json"));
+
+	const emails = files.map((file) => {
+		const email = JSON.parse(
+			fs.readFileSync(path.join(directory, file), "utf8")
+		);
+		return email;
+	});
+
+	// Filter by user if specified
+	if (user) {
+		if (type === "sent") {
+			// For sent emails, filter by sender (email.user)
+			return emails.filter((email) => email.user === user);
+		} else {
+			// For received emails, filter by recipient (email.to)
+			return emails.filter((email) => {
+				const normalizedTo = normalizeEmail(email.to);
+				return normalizedTo === user;
+			});
+		}
+	}
+
+	return emails;
+}
+
+// -------------------- GET RECEIVED EMAILS --------------------
+app.get("/emails", (req, res) => {
+	const { user, type } = req.query;
+
+	if (type === "sent") {
+		// Redirect to sent emails endpoint
+		return res.redirect(`/sent-emails?user=${user || ""}`);
+	}
+
+	const emails = getEmailsByUserAndType(user, "received");
+	res.json(emails);
+});
+
+// -------------------- GET SENT EMAILS --------------------
+app.get("/sent-emails", (req, res) => {
+	const { user } = req.query;
+	const emails = getEmailsByUserAndType(user, "sent");
+	res.json(emails);
+});
+
+// -------------------- GET ALL EMAILS (SENT + RECEIVED) --------------------
+app.get("/all-emails", (req, res) => {
+	const { user, type } = req.query;
+
+	let emails = [];
+
+	if (!type || type === "received") {
+		const receivedEmails = getEmailsByUserAndType(user, "received");
+		emails = emails.concat(receivedEmails);
+	}
+
+	if (!type || type === "sent") {
+		const sentEmails = getEmailsByUserAndType(user, "sent");
+		emails = emails.concat(sentEmails);
+	}
+
+	// Sort by date (newest first)
+	emails.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+	res.json(emails);
+});
+
+// -------------------- GET SINGLE EMAIL --------------------
+app.get("/emails/:id", (req, res) => {
+	const { user } = req.query;
+
+	// Check both received and sent emails
+	let emailPath = path.join("emails/parsed", `${req.params.id}.json`);
+	let email = null;
+
+	if (fs.existsSync(emailPath)) {
+		email = JSON.parse(fs.readFileSync(emailPath, "utf8"));
+	} else {
+		emailPath = path.join("emails/sent", `${req.params.id}.json`);
+		if (fs.existsSync(emailPath)) {
+			email = JSON.parse(fs.readFileSync(emailPath, "utf8"));
+		}
+	}
+
+	if (!email) {
+		return res.status(404).json({ error: "Email not found" });
+	}
+
+	// Filter by user if specified
+	if (user && email.user !== user) {
+		return res.status(403).json({ error: "Access denied" });
+	}
+
+	res.json(email);
+});
+
+// -------------------- GET RECEIVED ATTACHMENT --------------------
+app.get("/emails/:id/attachments/:filename", (req, res) => {
+	const { user } = req.query;
+	const attachmentPath = path.join(
+		"emails/attachments",
+		req.params.id,
+		req.params.filename
+	);
+
+	if (!fs.existsSync(attachmentPath)) {
+		return res.status(404).json({ error: "Attachment not found" });
+	}
+
+	// Check user access for received emails
+	if (user) {
+		const emailPath = path.join("emails/parsed", `${req.params.id}.json`);
+		if (fs.existsSync(emailPath)) {
+			const email = JSON.parse(fs.readFileSync(emailPath, "utf8"));
+			if (email.to !== user) {
+				return res.status(403).json({ error: "Access denied" });
+			}
+		}
+	}
+
+	res.sendFile(path.resolve(attachmentPath));
+});
+
+// -------------------- GET SENT ATTACHMENT --------------------
+app.get("/sent-emails/:id/attachments/:filename", (req, res) => {
+	const { user } = req.query;
+	const attachmentPath = path.join(
+		"emails/sent_attachments",
+		req.params.id,
+		req.params.filename
+	);
+
+	if (!fs.existsSync(attachmentPath)) {
+		return res.status(404).json({ error: "Attachment not found" });
+	}
+
+	// Check user access for sent emails
+	if (user) {
+		const emailPath = path.join("emails/sent", `${req.params.id}.json`);
+		if (fs.existsSync(emailPath)) {
+			const email = JSON.parse(fs.readFileSync(emailPath, "utf8"));
+			if (email.user !== user) {
+				return res.status(403).json({ error: "Access denied" });
+			}
+		}
+	}
+
+	res.sendFile(path.resolve(attachmentPath));
+});
+
+// -------------------- SEND EMAIL --------------------
+const upload = multer({ dest: "uploads/" });
+
+app.post("/send-email", upload.array("attachments"), async (req, res) => {
+	try {
+		const { to, subject, text, html, user } = req.body;
+
+		// Validate user
+		if (!user || !USERS[user]) {
+			return res.status(400).json({ success: false, error: "Invalid user" });
+		}
+
+		const attachments =
+			req.files?.map((file) => ({
+				filename: file.originalname,
+				path: file.path,
+			})) || [];
+
+		console.log(req.body);
+
+		const transporter = nodemailer.createTransport({
+			host: "127.0.0.1",
+			port: 25,
+			secure: false,
+			auth: {
+				user: req.body.user,
+				pass: req.body.password,
+			},
+			tls: { rejectUnauthorized: false },
+		});
+
+		const info = await transporter.sendMail({
+			from: `"${user}" <${user}>`,
+			to,
+			subject,
+			text,
+			html,
+			attachments,
+		});
+
+		// Save sent email info
+		const emailId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+		const sentPath = path.join("emails/sent", `${emailId}.json`);
+		const sentAttachmentsDir = path.join("emails/sent_attachments", emailId);
+		mkdirp.sync(sentAttachmentsDir);
+
+		fs.writeFileSync(
+			sentPath,
+			JSON.stringify(
+				{
+					id: emailId,
+					type: "sent",
+					user: user, // Add user information
+					from: user,
+					to,
+					subject,
+					date: new Date(),
+					text,
+					html,
+					attachments: attachments.map((a) => ({
+						filename: a.filename,
+						size: fs.existsSync(a.path) ? fs.statSync(a.path).size : null,
+					})),
+				},
+				null,
+				2
+			)
+		);
+
+		// Save attachments to sent_attachments folder
+		for (const file of attachments) {
+			const destPath = path.join(sentAttachmentsDir, file.filename);
+			fs.copyFileSync(file.path, destPath);
+		}
+
+		console.log(`✅ Email sent by ${user}: ${info.messageId}`);
+		res.json({ success: true, messageId: info.messageId });
+	} catch (err) {
+		console.error("❌ Failed to send email:", err);
+		res.status(500).json({ success: false, error: err.message });
+	}
+});
+
+// -------------------- GET USERS LIST --------------------
+app.get("/users", (req, res) => {
+	const users = Object.keys(USERS).map((username) => ({
+		username,
+		// Don't expose passwords in the API
+	}));
+	res.json(users);
+});
+
+// -------------------- START API SERVER --------------------
+app.listen(4000, () => {
+	console.log("🌐 API Server running on port 4000");
 });
