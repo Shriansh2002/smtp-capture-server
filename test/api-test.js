@@ -137,7 +137,7 @@ async function testSendEmailsViaAPI() {
 			"<p>This is a <b>test email</b> sent via API from user_a to user_b</p>"
 		);
 		formData.append("user", "user_a@domain.com");
-		formData.append("password", "password_a");
+		formData.append("apiKey", "api_key_a");
 		formData.append("attachments", fs.createReadStream(testFilePath));
 
 		const response = await axios.post(`${API_BASE_URL}/send-email`, formData, {
@@ -174,7 +174,7 @@ async function testSendEmailsViaAPI() {
 			"<p>This is a <b>test email</b> sent via API from user_b to user_a</p>"
 		);
 		formData.append("user", "user_b@domain.com");
-		formData.append("password", "password_b");
+		formData.append("apiKey", "api_key_b");
 
 		const response = await axios.post(`${API_BASE_URL}/send-email`, formData, {
 			headers: {
@@ -203,7 +203,7 @@ async function testSendEmailsViaAPI() {
 		formData.append("subject", "This should fail");
 		formData.append("text", "This should not be sent");
 		formData.append("user", "invalid@domain.com");
-		formData.append("password", "wrong_password");
+		formData.append("apiKey", "wrong_api_key");
 
 		await axios.post(`${API_BASE_URL}/send-email`, formData, {
 			headers: {

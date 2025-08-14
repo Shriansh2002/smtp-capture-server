@@ -11,8 +11,8 @@ const multer = require("multer");
 
 // -------------------- USER CONFIGURATION --------------------
 const USERS = {
-	"user_a@domain.com": { password: "password_a" },
-	"user_b@domain.com": { password: "password_b" },
+	"user_a@domain.com": { password: "password_a", apiKey: "api_key_a" },
+	"user_b@domain.com": { password: "password_b", apiKey: "api_key_b" },
 	// Add more users as needed
 };
 
@@ -149,20 +149,24 @@ function getEmailsByUserAndType(user, type) {
 	});
 
 	// Filter by user if specified
+	let filteredEmails = emails;
 	if (user) {
 		if (type === "sent") {
 			// For sent emails, filter by sender (email.user)
-			return emails.filter((email) => email.user === user);
+			filteredEmails = emails.filter((email) => email.user === user);
 		} else {
 			// For received emails, filter by recipient (email.to)
-			return emails.filter((email) => {
+			filteredEmails = emails.filter((email) => {
 				const normalizedTo = normalizeEmail(email.to);
 				return normalizedTo === user;
 			});
 		}
 	}
 
-	return emails;
+	// Sort by date (newest first)
+	filteredEmails.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+	return filteredEmails;
 }
 
 // -------------------- GET RECEIVED EMAILS --------------------
@@ -295,11 +299,21 @@ const upload = multer({ dest: "uploads/" });
 
 app.post("/send-email", upload.array("attachments"), async (req, res) => {
 	try {
-		const { to, subject, text, html, user } = req.body;
+		const { to, subject, text, html, user, apiKey } = req.body;
 
-		// Validate user
+		// Validate user and authentication
 		if (!user || !USERS[user]) {
 			return res.status(400).json({ success: false, error: "Invalid user" });
+		}
+
+		// Check authentication API key
+		const userConfig = USERS[user];
+		const isAuthenticated = apiKey && apiKey === userConfig.apiKey;
+
+		if (!isAuthenticated) {
+			return res
+				.status(401)
+				.json({ success: false, error: "Authentication failed" });
 		}
 
 		const attachments =
@@ -315,8 +329,8 @@ app.post("/send-email", upload.array("attachments"), async (req, res) => {
 			port: 25,
 			secure: false,
 			auth: {
-				user: req.body.user,
-				pass: req.body.password,
+				user: user,
+				pass: userConfig.password, // Use stored password for SMTP
 			},
 			tls: { rejectUnauthorized: false },
 		});
