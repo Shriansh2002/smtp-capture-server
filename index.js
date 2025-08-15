@@ -25,9 +25,13 @@ mkdirp.sync("emails/sent"); // sent emails
 mkdirp.sync("emails/sent_attachments"); // sent email attachments
 
 // -------------------- SMTP SERVER (RECEIVING) --------------------
+
+const allowedDomains = ["google.in", "domain.com"];
+
 const smtpServer = new SMTPServer({
-	authOptional: false, // Require authentication
+	authOptional: true,
 	onAuth(auth, session, callback) {
+		// Only used for sending mail (client-authenticated SMTP)
 		const { username, password } = auth;
 
 		if (USERS[username] && USERS[username].password === password) {
@@ -36,6 +40,19 @@ const smtpServer = new SMTPServer({
 		} else {
 			callback(new Error("Invalid username or password"));
 		}
+	},
+	onMailFrom(address, session, callback) {
+		callback();
+	},
+	onRcptTo(address, session, callback) {
+		// Only allow RCPT TO for our allowed domains
+		const domain = address.address.split("@")[1]?.toLowerCase();
+		if (allowedDomains.includes(domain)) {
+			return callback();
+		}
+		return callback(
+			new Error("Relay access denied: recipient domain not allowed")
+		);
 	},
 	onData(stream, session, callback) {
 		let rawChunks = [];
@@ -60,7 +77,7 @@ const smtpServer = new SMTPServer({
 						{
 							id: emailId,
 							type: "received",
-							user: session.user, // Add user information
+							user: session.user || null,
 							from: parsed.from?.text,
 							to: parsed.to?.text,
 							subject: parsed.subject,
@@ -86,11 +103,7 @@ const smtpServer = new SMTPServer({
 					fs.writeFileSync(path.join(attachmentsDir, filename), att.content);
 				}
 
-				console.log(
-					`✅ Email received for ${session.user}: ${
-						parsed.subject || "No Subject"
-					}`
-				);
+				console.log(`✅ Email received: ${parsed.subject || "No Subject"}`);
 				callback();
 			} catch (err) {
 				console.error(`❌ Parsing failed for ${emailId}:`, err);
@@ -99,7 +112,7 @@ const smtpServer = new SMTPServer({
 					JSON.stringify(
 						{
 							id: emailId,
-							user: session.user,
+							user: session.user || null,
 							error: err.message,
 							stack: err.stack,
 						},
@@ -316,16 +329,23 @@ app.post("/send-email", upload.array("attachments"), async (req, res) => {
 				.json({ success: false, error: "Authentication failed" });
 		}
 
+		// Prevent open relay abuse — only allow sending FROM authenticated user
+		const allowedDomain = user.split("@")[1].toLowerCase();
+		const toDomain = (to || "").split("@")[1]?.toLowerCase();
+		if (!toDomain) {
+			return res
+				.status(400)
+				.json({ success: false, error: "Invalid recipient address" });
+		}
+
 		const attachments =
 			req.files?.map((file) => ({
 				filename: file.originalname,
 				path: file.path,
 			})) || [];
 
-		console.log(req.body);
-
 		const transporter = nodemailer.createTransport({
-			host: "127.0.0.1",
+			host: "127.0.0.1", // Local SMTP server (your EC2 instance)
 			port: 25,
 			secure: false,
 			auth: {
@@ -373,10 +393,11 @@ app.post("/send-email", upload.array("attachments"), async (req, res) => {
 			)
 		);
 
-		// Save attachments to sent_attachments folder
+		// Move attachments to sent_attachments folder & clean up temp files
 		for (const file of attachments) {
 			const destPath = path.join(sentAttachmentsDir, file.filename);
 			fs.copyFileSync(file.path, destPath);
+			fs.unlinkSync(file.path); // remove temp file
 		}
 
 		console.log(`✅ Email sent by ${user}: ${info.messageId}`);

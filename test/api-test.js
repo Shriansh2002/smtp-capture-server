@@ -10,8 +10,8 @@ const SMTP_HOST = "127.0.0.1";
 const SMTP_PORT = 25;
 
 const USERS = {
-	"user_a@domain.com": { password: "password_a" },
-	"user_b@domain.com": { password: "password_b" },
+	"user_a@domain.com": { password: "password_a", apiKey: "api_key_a" },
+	"user_b@domain.com": { password: "password_b", apiKey: "api_key_b" },
 };
 
 // Test results tracking
