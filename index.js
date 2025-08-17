@@ -127,7 +127,9 @@ const smtpServer = new SMTPServer({
 	},
 });
 
-smtpServer.listen(25, "0.0.0.0", () => {
+const EC2_SERVER_IP = "0.0.0.0";
+
+smtpServer.listen(25, EC2_SERVER_IP, () => {
 	console.log("📬 SMTP Server running on port 25");
 });
 
@@ -345,7 +347,7 @@ app.post("/send-email", upload.array("attachments"), async (req, res) => {
 			})) || [];
 
 		const transporter = nodemailer.createTransport({
-			host: "127.0.0.1", // Local SMTP server (your EC2 instance)
+			host: EC2_SERVER_IP, // Local SMTP server (your EC2 instance)
 			port: 25,
 			secure: false,
 			auth: {
