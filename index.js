@@ -155,14 +155,29 @@ function normalizeEmail(email) {
 
 function getEmailsByUserAndType(user, type) {
 	const directory = type === "sent" ? "emails/sent" : "emails/parsed";
+
+	// Check if directory exists
+	if (!fs.existsSync(directory)) {
+		console.log(`Directory ${directory} does not exist, creating it...`);
+		mkdirp.sync(directory);
+		return [];
+	}
+
 	const files = fs.readdirSync(directory).filter((f) => f.endsWith(".json"));
 
-	const emails = files.map((file) => {
-		const email = JSON.parse(
-			fs.readFileSync(path.join(directory, file), "utf8")
-		);
-		return email;
-	});
+	const emails = files
+		.map((file) => {
+			try {
+				const email = JSON.parse(
+					fs.readFileSync(path.join(directory, file), "utf8")
+				);
+				return email;
+			} catch (error) {
+				console.error(`Error parsing email file ${file}:`, error);
+				return null;
+			}
+		})
+		.filter((email) => email !== null);
 
 	// Filter by user if specified
 	let filteredEmails = emails;
@@ -186,16 +201,19 @@ function getEmailsByUserAndType(user, type) {
 }
 // -------------------- AUTHENTICATION --------------------
 app.post("/auth/login", (req, res) => {
-	const { username, apiKey } = req.body;
+	const { username, email, apiKey } = req.body;
 
-	if (!username || !USERS[username]) {
+	// Support both username and email fields
+	const userEmail = username || email;
+
+	if (!userEmail || !USERS[userEmail]) {
 		return res.status(401).json({
 			success: false,
-			error: "Invalid username or user not found",
+			error: "Invalid username/email or user not found",
 		});
 	}
 
-	const userConfig = USERS[username];
+	const userConfig = USERS[userEmail];
 
 	if (apiKey && userConfig.apiKey !== apiKey) {
 		return res.status(401).json({
@@ -207,7 +225,9 @@ app.post("/auth/login", (req, res) => {
 	res.json({
 		success: true,
 		user: {
-			username: username,
+			id: userEmail,
+			email: userEmail,
+			username: userEmail,
 		},
 		message: "Authentication successful",
 	});
@@ -215,22 +235,39 @@ app.post("/auth/login", (req, res) => {
 
 // -------------------- GET RECEIVED EMAILS --------------------
 app.get("/emails", (req, res) => {
-	const { user, type } = req.query;
+	try {
+		const { user, type } = req.query;
 
-	if (type === "sent") {
-		// Redirect to sent emails endpoint
-		return res.redirect(`/sent-emails?user=${user || ""}`);
+		if (type === "sent") {
+			// Redirect to sent emails endpoint
+			return res.redirect(`/sent-emails?user=${user || ""}`);
+		}
+
+		console.log(`Fetching received emails for user: ${user}`);
+		const emails = getEmailsByUserAndType(user, "received");
+		console.log(`Found ${emails.length} received emails for user: ${user}`);
+
+		res.json(emails);
+	} catch (error) {
+		console.error("Error fetching received emails:", error);
+		res.status(500).json({ error: "Internal server error" });
 	}
-
-	const emails = getEmailsByUserAndType(user, "received");
-	res.json(emails);
 });
 
 // -------------------- GET SENT EMAILS --------------------
 app.get("/sent-emails", (req, res) => {
-	const { user } = req.query;
-	const emails = getEmailsByUserAndType(user, "sent");
-	res.json(emails);
+	try {
+		const { user } = req.query;
+
+		console.log(`Fetching sent emails for user: ${user}`);
+		const emails = getEmailsByUserAndType(user, "sent");
+		console.log(`Found ${emails.length} sent emails for user: ${user}`);
+
+		res.json(emails);
+	} catch (error) {
+		console.error("Error fetching sent emails:", error);
+		res.status(500).json({ error: "Internal server error" });
+	}
 });
 
 // -------------------- GET ALL EMAILS (SENT + RECEIVED) --------------------
@@ -437,6 +474,22 @@ app.post("/send-email", upload.array("attachments"), async (req, res) => {
 		console.error("❌ Failed to send email:", err);
 		res.status(500).json({ success: false, error: err.message });
 	}
+});
+
+// -------------------- HEALTH CHECK --------------------
+app.get("/health", (req, res) => {
+	res.json({
+		status: "ok",
+		timestamp: new Date().toISOString(),
+		users: Object.keys(USERS),
+		directories: {
+			raw: fs.existsSync("emails/raw"),
+			parsed: fs.existsSync("emails/parsed"),
+			sent: fs.existsSync("emails/sent"),
+			attachments: fs.existsSync("emails/attachments"),
+			sent_attachments: fs.existsSync("emails/sent_attachments"),
+		},
+	});
 });
 
 // -------------------- GET USERS LIST --------------------
