@@ -5,9 +5,9 @@ const fs = require("fs");
 const path = require("path");
 
 // Configuration
-const API_BASE_URL = "http://3.110.114.135:4000";
-const SMTP_HOST = "3.110.114.135";
-const SMTP_PORT = 2525;
+const API_BASE_URL = "http://0.0.0.0:4000";
+const SMTP_HOST = "0.0.0.0";
+const SMTP_PORT = 25;
 
 const USERS = {
 	"user_a@domain.com": { password: "password_a", apiKey: "api_key_a" },

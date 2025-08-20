@@ -128,9 +128,10 @@ const smtpServer = new SMTPServer({
 });
 
 const EC2_SERVER_IP = "0.0.0.0";
+const PORT = 25;
 
-smtpServer.listen(25, EC2_SERVER_IP, () => {
-	console.log("📬 SMTP Server running on port 25");
+smtpServer.listen(PORT, EC2_SERVER_IP, () => {
+	console.log(`📬 SMTP Server running on port ${PORT}`);
 });
 
 // -------------------- EXPRESS API --------------------
@@ -183,6 +184,34 @@ function getEmailsByUserAndType(user, type) {
 
 	return filteredEmails;
 }
+// -------------------- AUTHENTICATION --------------------
+app.post("/auth/login", (req, res) => {
+	const { username, apiKey } = req.body;
+
+	if (!username || !USERS[username]) {
+		return res.status(401).json({
+			success: false,
+			error: "Invalid username or user not found",
+		});
+	}
+
+	const userConfig = USERS[username];
+
+	if (apiKey && userConfig.apiKey !== apiKey) {
+		return res.status(401).json({
+			success: false,
+			error: "Invalid API key",
+		});
+	}
+
+	res.json({
+		success: true,
+		user: {
+			username: username,
+		},
+		message: "Authentication successful",
+	});
+});
 
 // -------------------- GET RECEIVED EMAILS --------------------
 app.get("/emails", (req, res) => {
