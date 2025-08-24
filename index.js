@@ -71,6 +71,9 @@ const smtpServer = new SMTPServer({
 
 				const parsed = await simpleParser(rawEmail);
 
+				// Use local timezone date
+				const localDate = getLocalDate(parsed.date);
+
 				fs.writeFileSync(
 					parsedPath,
 					JSON.stringify(
@@ -81,7 +84,7 @@ const smtpServer = new SMTPServer({
 							from: parsed.from?.text,
 							to: parsed.to?.text,
 							subject: parsed.subject,
-							date: parsed.date,
+							date: formatDateForStorage(localDate),
 							text: parsed.text,
 							html: parsed.html,
 							attachments: parsed.attachments.map((att) => ({
@@ -103,7 +106,6 @@ const smtpServer = new SMTPServer({
 					fs.writeFileSync(path.join(attachmentsDir, filename), att.content);
 				}
 
-				console.log(`✅ Email received: ${parsed.subject || "No Subject"}`);
 				callback();
 			} catch (err) {
 				console.error(`❌ Parsing failed for ${emailId}:`, err);
@@ -140,6 +142,32 @@ app.use(cors());
 app.use(express.json());
 
 // -------------------- HELPER FUNCTIONS --------------------
+function getLocalDate(date = null) {
+	// If no date provided, use current time
+	if (!date) {
+		return new Date();
+	}
+
+	// If date is already a Date object, return it as is
+	if (date instanceof Date) {
+		return date;
+	}
+
+	// If date is a string or other format, parse it
+	return new Date(date);
+}
+
+function formatDateForStorage(date) {
+	// Store date as local timezone string to preserve timezone information
+	const localDate = new Date(date);
+	return localDate.toString();
+}
+
+function parseDateFromStorage(dateString) {
+	// Parse date from storage and return as local Date object
+	return new Date(dateString);
+}
+
 function normalizeEmail(email) {
 	if (!email) return "";
 
@@ -158,7 +186,6 @@ function getEmailsByUserAndType(user, type) {
 
 	// Check if directory exists
 	if (!fs.existsSync(directory)) {
-		console.log(`Directory ${directory} does not exist, creating it...`);
 		mkdirp.sync(directory);
 		return [];
 	}
@@ -195,7 +222,9 @@ function getEmailsByUserAndType(user, type) {
 	}
 
 	// Sort by date (newest first)
-	filteredEmails.sort((a, b) => new Date(b.date) - new Date(a.date));
+	filteredEmails.sort(
+		(a, b) => parseDateFromStorage(b.date) - parseDateFromStorage(a.date)
+	);
 
 	return filteredEmails;
 }
@@ -243,9 +272,7 @@ app.get("/emails", (req, res) => {
 			return res.redirect(`/sent-emails?user=${user || ""}`);
 		}
 
-		console.log(`Fetching received emails for user: ${user}`);
 		const emails = getEmailsByUserAndType(user, "received");
-		console.log(`Found ${emails.length} received emails for user: ${user}`);
 
 		res.json(emails);
 	} catch (error) {
@@ -259,9 +286,7 @@ app.get("/sent-emails", (req, res) => {
 	try {
 		const { user } = req.query;
 
-		console.log(`Fetching sent emails for user: ${user}`);
 		const emails = getEmailsByUserAndType(user, "sent");
-		console.log(`Found ${emails.length} sent emails for user: ${user}`);
 
 		res.json(emails);
 	} catch (error) {
@@ -287,7 +312,9 @@ app.get("/all-emails", (req, res) => {
 	}
 
 	// Sort by date (newest first)
-	emails.sort((a, b) => new Date(b.date) - new Date(a.date));
+	emails.sort(
+		(a, b) => parseDateFromStorage(b.date) - parseDateFromStorage(a.date)
+	);
 
 	res.json(emails);
 });
@@ -314,7 +341,7 @@ app.get("/emails/:id", (req, res) => {
 	}
 
 	// Filter by user if specified
-	if (user && email.user !== user) {
+	if (user && email.user !== user && email.to !== user) {
 		return res.status(403).json({ error: "Access denied" });
 	}
 
@@ -448,7 +475,7 @@ app.post("/send-email", upload.array("attachments"), async (req, res) => {
 					from: user,
 					to,
 					subject,
-					date: new Date(),
+					date: formatDateForStorage(getLocalDate()),
 					text,
 					html,
 					attachments: attachments.map((a) => ({
@@ -468,7 +495,6 @@ app.post("/send-email", upload.array("attachments"), async (req, res) => {
 			fs.unlinkSync(file.path); // remove temp file
 		}
 
-		console.log(`✅ Email sent by ${user}: ${info.messageId}`);
 		res.json({ success: true, messageId: info.messageId });
 	} catch (err) {
 		console.error("❌ Failed to send email:", err);
@@ -480,7 +506,7 @@ app.post("/send-email", upload.array("attachments"), async (req, res) => {
 app.get("/health", (req, res) => {
 	res.json({
 		status: "ok",
-		timestamp: new Date().toISOString(),
+		timestamp: formatDateForStorage(getLocalDate()),
 		users: Object.keys(USERS),
 		directories: {
 			raw: fs.existsSync("emails/raw"),
