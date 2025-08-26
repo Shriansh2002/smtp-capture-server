@@ -18,7 +18,7 @@ class StorageService {
 	 * Initialize all required directories
 	 */
 	initializeDirectories() {
-		Object.values(this.directories).forEach(dir => {
+		Object.values(this.directories).forEach((dir) => {
 			mkdirp.sync(dir);
 		});
 	}
@@ -40,9 +40,10 @@ class StorageService {
 	 * @param {string} type - Email type ('received' or 'sent')
 	 */
 	saveParsedEmail(emailId, emailData, type = "received") {
-		const directory = type === "sent" ? this.directories.sent : this.directories.parsed;
+		const directory =
+			type === "sent" ? this.directories.sent : this.directories.parsed;
 		const parsedPath = path.join(directory, `${emailId}.json`);
-		
+
 		fs.writeFileSync(parsedPath, JSON.stringify(emailData, null, 2));
 	}
 
@@ -53,14 +54,16 @@ class StorageService {
 	 * @param {string} type - Email type ('received' or 'sent')
 	 */
 	saveAttachments(emailId, attachments, type = "received") {
-		const attachmentsDir = type === "sent" 
-			? path.join(this.directories.sentAttachments, emailId)
-			: path.join(this.directories.attachments, emailId);
-		
+		const attachmentsDir =
+			type === "sent"
+				? path.join(this.directories.sentAttachments, emailId)
+				: path.join(this.directories.attachments, emailId);
+
 		mkdirp.sync(attachmentsDir);
 
 		for (const att of attachments) {
-			const filename = att.filename || 
+			const filename =
+				att.filename ||
 				`attachment-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 			fs.writeFileSync(path.join(attachmentsDir, filename), att.content);
 		}
@@ -73,15 +76,18 @@ class StorageService {
 	 * @param {string} user - User identifier
 	 */
 	saveError(emailId, error, user = null) {
-		const errorPath = path.join(this.directories.errors, `${emailId}.error.json`);
+		const errorPath = path.join(
+			this.directories.errors,
+			`${emailId}.error.json`
+		);
 		const errorData = {
 			id: emailId,
 			user,
 			error: error.message,
 			stack: error.stack,
-			timestamp: new Date().toString()
+			timestamp: new Date().toString(),
 		};
-		
+
 		fs.writeFileSync(errorPath, JSON.stringify(errorData, null, 2));
 	}
 
@@ -92,7 +98,8 @@ class StorageService {
 	 * @returns {Array} Array of email objects
 	 */
 	getEmailsByUserAndType(user, type) {
-		const directory = type === "sent" ? this.directories.sent : this.directories.parsed;
+		const directory =
+			type === "sent" ? this.directories.sent : this.directories.parsed;
 
 		// Check if directory exists
 		if (!fs.existsSync(directory)) {
@@ -100,30 +107,32 @@ class StorageService {
 			return [];
 		}
 
-		const files = fs.readdirSync(directory).filter(f => f.endsWith(".json"));
+		const files = fs.readdirSync(directory).filter((f) => f.endsWith(".json"));
 
 		const emails = files
-			.map(file => {
+			.map((file) => {
 				try {
-					const email = JSON.parse(fs.readFileSync(path.join(directory, file), "utf8"));
+					const email = JSON.parse(
+						fs.readFileSync(path.join(directory, file), "utf8")
+					);
 					return email;
 				} catch (error) {
 					console.error(`Error parsing email file ${file}:`, error);
 					return null;
 				}
 			})
-			.filter(email => email !== null);
+			.filter((email) => email !== null);
 
 		// Filter by user if specified
 		let filteredEmails = emails;
 		if (user) {
 			if (type === "sent") {
 				// For sent emails, filter by sender (email.user)
-				filteredEmails = emails.filter(email => email.user === user);
+				filteredEmails = emails.filter((email) => email.user === user);
 			} else {
 				// For received emails, filter by recipient (email.to)
 				const { normalizeEmail } = require("../utils/emailUtils");
-				filteredEmails = emails.filter(email => {
+				filteredEmails = emails.filter((email) => {
 					const normalizedTo = normalizeEmail(email.to);
 					return normalizedTo === user;
 				});
@@ -132,8 +141,8 @@ class StorageService {
 
 		// Sort by date (newest first)
 		const { parseDateFromStorage } = require("../utils/dateUtils");
-		filteredEmails.sort((a, b) => 
-			parseDateFromStorage(b.date) - parseDateFromStorage(a.date)
+		filteredEmails.sort(
+			(a, b) => parseDateFromStorage(b.date) - parseDateFromStorage(a.date)
 		);
 
 		return filteredEmails;
@@ -169,11 +178,12 @@ class StorageService {
 	 * @returns {string} Full path to attachment file
 	 */
 	getAttachmentPath(emailId, filename, type = "received") {
-		const attachmentsDir = type === "sent" 
-			? this.directories.sentAttachments
-			: this.directories.attachments;
-		
-		return path.join(attachmentsDir, emailId, filename);
+		const attachmentsDir =
+			type === "sent"
+				? this.directories.sentAttachments
+				: this.directories.attachments;
+		// Ensure an absolute path is returned for sendFile
+		return path.resolve(attachmentsDir, emailId, filename);
 	}
 
 	/**
@@ -195,9 +205,12 @@ class StorageService {
 	 * @param {string} filename - Target filename
 	 */
 	moveUploadedAttachment(emailId, sourcePath, filename) {
-		const sentAttachmentsDir = path.join(this.directories.sentAttachments, emailId);
+		const sentAttachmentsDir = path.join(
+			this.directories.sentAttachments,
+			emailId
+		);
 		mkdirp.sync(sentAttachmentsDir);
-		
+
 		const destPath = path.join(sentAttachmentsDir, filename);
 		fs.copyFileSync(sourcePath, destPath);
 		fs.unlinkSync(sourcePath); // Remove temp file

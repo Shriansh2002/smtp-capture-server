@@ -13,7 +13,7 @@ const SERVER_CONFIG = require("../../config/server");
 const upload = multer({ dest: SERVER_CONFIG.storage.directories.uploads });
 
 /**
- * POST /send-email
+ * POST /send/email
  * Send an email with optional attachments
  */
 router.post("/email", upload.array("attachments"), async (req, res) => {
