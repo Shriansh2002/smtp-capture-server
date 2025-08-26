@@ -9,15 +9,15 @@ const SERVER_CONFIG = {
 		host: "0.0.0.0",
 		port: 25,
 		allowedDomains: ["google.in", "domain.com"],
-		authOptional: true
+		authOptional: true,
 	},
-	
+
 	// API Server Configuration
 	api: {
 		host: "0.0.0.0",
-		port: 4000
+		port: 4000,
 	},
-	
+
 	// Email Storage Configuration
 	storage: {
 		directories: {
@@ -27,9 +27,10 @@ const SERVER_CONFIG = {
 			errors: "emails/errors",
 			sent: "emails/sent",
 			sentAttachments: "emails/sent_attachments",
-			uploads: "uploads"
-		}
-	}
+			uploads: "uploads",
+			starred: "emails/starred",
+		},
+	},
 };
 
 module.exports = SERVER_CONFIG;

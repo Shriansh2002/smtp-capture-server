@@ -13,6 +13,7 @@ const emailRoutes = require("./routes/emails");
 const sentEmailRoutes = require("./routes/sent-emails");
 const allEmailRoutes = require("./routes/all-emails");
 const sendRoutes = require("./routes/send");
+const starredRoutes = require("./routes/starred");
 const userRoutes = require("./routes/users");
 const healthRoutes = require("./routes/health");
 
@@ -53,6 +54,9 @@ class APIServer {
 
 		// All emails routes
 		this.app.use("/all-emails", allEmailRoutes);
+
+		// Starred email routes
+		this.app.use("/starred", starredRoutes);
 
 		// Send email routes
 		this.app.use("/send", sendRoutes);

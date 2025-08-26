@@ -24,6 +24,70 @@ class StorageService {
 	}
 
 	/**
+	 * Get file path for a user's starred email ids
+	 * Uses one JSON file per user containing an array of email IDs
+	 */
+	getStarFilePath(user) {
+		const safeUser = (user || "anonymous").replace(/[^a-zA-Z0-9@._-]/g, "_");
+		return path.join(this.directories.starred, `${safeUser}.json`);
+	}
+
+	/**
+	 * Read a user's starred set
+	 */
+	readStarredSet(user) {
+		const filePath = this.getStarFilePath(user);
+		if (!fs.existsSync(filePath)) {
+			mkdirp.sync(path.dirname(filePath));
+			fs.writeFileSync(filePath, JSON.stringify([]));
+			return new Set();
+		}
+		try {
+			const ids = JSON.parse(fs.readFileSync(filePath, "utf8"));
+			return new Set(Array.isArray(ids) ? ids : []);
+		} catch {
+			return new Set();
+		}
+	}
+
+	/**
+	 * Persist a user's starred set
+	 */
+	writeStarredSet(user, starredSet) {
+		const filePath = this.getStarFilePath(user);
+		mkdirp.sync(path.dirname(filePath));
+		fs.writeFileSync(filePath, JSON.stringify(Array.from(starredSet), null, 2));
+	}
+
+	addStar(user, emailId) {
+		const set = this.readStarredSet(user);
+		set.add(emailId);
+		this.writeStarredSet(user, set);
+	}
+
+	removeStar(user, emailId) {
+		const set = this.readStarredSet(user);
+		set.delete(emailId);
+		this.writeStarredSet(user, set);
+	}
+
+	isStarred(user, emailId) {
+		return this.readStarredSet(user).has(emailId);
+	}
+
+	getStarredEmailIds(user) {
+		return Array.from(this.readStarredSet(user));
+	}
+
+	listStarredEmails(user) {
+		const ids = this.getStarredEmailIds(user);
+		const emails = ids
+			.map((id) => this.getEmailById(id))
+			.filter((e) => e !== null && e !== undefined);
+		return emails;
+	}
+
+	/**
 	 * Save raw email to file system
 	 * @param {string} emailId - Unique email identifier
 	 * @param {Buffer} rawEmail - Raw email data

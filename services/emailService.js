@@ -6,7 +6,11 @@
 const { simpleParser } = require("mailparser");
 const nodemailer = require("nodemailer");
 const storageService = require("./storageService");
-const { getLocalDate, formatDateForStorage, generateEmailId } = require("../utils/dateUtils");
+const {
+	getLocalDate,
+	formatDateForStorage,
+	generateEmailId,
+} = require("../utils/dateUtils");
 const { normalizeEmail, isAllowedDomain } = require("../utils/emailUtils");
 const SERVER_CONFIG = require("../config/server");
 const USERS = require("../config/users");
@@ -24,7 +28,7 @@ class EmailService {
 	 */
 	async processReceivedEmail(rawEmail, user = null) {
 		const emailId = generateEmailId();
-		
+
 		try {
 			// Save raw email
 			storageService.saveRawEmail(emailId, rawEmail);
@@ -44,7 +48,7 @@ class EmailService {
 				date: formatDateForStorage(localDate),
 				text: parsed.text,
 				html: parsed.html,
-				attachments: parsed.attachments.map(att => ({
+				attachments: parsed.attachments.map((att) => ({
 					filename: att.filename,
 					contentType: att.contentType,
 					size: att.size,
@@ -135,7 +139,7 @@ class EmailService {
 			date: formatDateForStorage(getLocalDate()),
 			text,
 			html,
-			attachments: attachments.map(a => ({
+			attachments: attachments.map((a) => ({
 				filename: a.filename,
 				size: a.size || null,
 			})),
@@ -161,21 +165,64 @@ class EmailService {
 	getEmails(user, type = "received") {
 		if (type === "all") {
 			// Get both received and sent emails
-			const receivedEmails = storageService.getEmailsByUserAndType(user, "received");
+			const receivedEmails = storageService.getEmailsByUserAndType(
+				user,
+				"received"
+			);
 			const sentEmails = storageService.getEmailsByUserAndType(user, "sent");
-			
+
 			// Combine and sort by date
 			const allEmails = [...receivedEmails, ...sentEmails];
 			const { parseDateFromStorage } = require("../utils/dateUtils");
-			
-			allEmails.sort((a, b) => 
-				parseDateFromStorage(b.date) - parseDateFromStorage(a.date)
+
+			allEmails.sort(
+				(a, b) => parseDateFromStorage(b.date) - parseDateFromStorage(a.date)
 			);
-			
+
 			return allEmails;
 		}
 
 		return storageService.getEmailsByUserAndType(user, type);
+	}
+
+	/**
+	 * Mark an email as starred for a user
+	 */
+	starEmail(user, emailId) {
+		const email = storageService.getEmailById(emailId);
+		if (!email) {
+			throw new Error("Email not found");
+		}
+		// Access control: user must be sender (sent) or recipient (received)
+		const normalizedTo = normalizeEmail(email.to);
+		if (email.user !== user && normalizedTo !== user) {
+			throw new Error("Access denied");
+		}
+		storageService.addStar(user, emailId);
+		return { success: true };
+	}
+
+	/**
+	 * Remove starred mark for a user
+	 */
+	unstarEmail(user, emailId) {
+		const email = storageService.getEmailById(emailId);
+		if (!email) {
+			throw new Error("Email not found");
+		}
+		const normalizedTo = normalizeEmail(email.to);
+		if (email.user !== user && normalizedTo !== user) {
+			throw new Error("Access denied");
+		}
+		storageService.removeStar(user, emailId);
+		return { success: true };
+	}
+
+	/**
+	 * List starred emails for a user
+	 */
+	getStarredEmails(user) {
+		return storageService.listStarredEmails(user);
 	}
 
 	/**
@@ -186,7 +233,7 @@ class EmailService {
 	 */
 	getEmailById(emailId, user = null) {
 		const email = storageService.getEmailById(emailId);
-		
+
 		if (!email) {
 			return null;
 		}
@@ -244,7 +291,7 @@ class EmailService {
 		}
 
 		const userConfig = USERS[username];
-		
+
 		if (apiKey && userConfig.apiKey !== apiKey) {
 			return null;
 		}
