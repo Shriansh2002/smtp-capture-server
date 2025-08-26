@@ -1,3 +1,5 @@
+const { SMTP_HOST, SMTP_PORT, API_HOST, API_PORT } = require("./env");
+
 /**
  * Server configuration
  * Contains SMTP and API server settings
@@ -6,16 +8,16 @@
 const SERVER_CONFIG = {
 	// SMTP Server Configuration
 	smtp: {
-		host: "0.0.0.0",
-		port: 25,
+		host: SMTP_HOST, // EC-2 SMTP Server Public IP
+		port: SMTP_PORT,
 		allowedDomains: ["google.in", "domain.com"],
 		authOptional: true,
 	},
 
 	// API Server Configuration
 	api: {
-		host: "0.0.0.0",
-		port: 4000,
+		host: API_HOST, // EC-2 Backend ServerPublic IP
+		port: API_PORT,
 	},
 
 	// Email Storage Configuration
