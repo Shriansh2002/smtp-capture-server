@@ -26,7 +26,15 @@ router.post("/login", (req, res) => {
 
 	// Validate user and API key
 	const userConfig = emailService.validateUser(userEmail, apiKey);
-	
+
+	// Check if account is active
+	if (userConfig && userConfig.isActive === false) {
+		return res.status(403).json({
+			success: false,
+			error: "Your Account is disabled, contact Admin",
+		});
+	}
+
 	if (!userConfig) {
 		return res.status(401).json({
 			success: false,
@@ -41,7 +49,7 @@ router.post("/login", (req, res) => {
 			email: userEmail,
 			username: userEmail,
 		},
-		message: "Authentication successful",
+		message: "Login successful",
 	});
 });
 

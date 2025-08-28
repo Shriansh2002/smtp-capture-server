@@ -4,13 +4,15 @@
  */
 
 const USERS = {
-	"user_a@domain.com": { 
-		password: "password_a", 
-		apiKey: "api_key_a" 
+	"user_a@domain.com": {
+		password: "password_a",
+		apiKey: "api_key_a",
+		isActive: true,
 	},
-	"user_b@domain.com": { 
-		password: "password_b", 
-		apiKey: "api_key_b" 
+	"user_b@domain.com": {
+		password: "password_b",
+		apiKey: "api_key_b",
+		isActive: false,
 	},
 	// Add more users as needed
 };
