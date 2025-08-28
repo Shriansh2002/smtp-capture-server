@@ -6,7 +6,7 @@
 const SMTPServer = require("smtp-server").SMTPServer;
 const emailService = require("../services/emailService");
 const SERVER_CONFIG = require("../config/server");
-const USERS = require("../config/users");
+const userService = require("../services/userService");
 
 class SMTPServerManager {
 	constructor() {
@@ -33,14 +33,17 @@ class SMTPServerManager {
 	 * @param {Object} session - Session object
 	 * @param {Function} callback - Callback function
 	 */
-	handleAuth(auth, session, callback) {
+	async handleAuth(auth, session, callback) {
 		const { username, password } = auth;
-
-		if (USERS[username] && USERS[username].password === password) {
+		try {
+			const user = await userService.validateSmtpAuth(username, password);
+			if (!user) {
+				return callback(new Error("Invalid username or password"));
+			}
 			session.user = username;
 			callback(null, { user: username });
-		} else {
-			callback(new Error("Invalid username or password"));
+		} catch (err) {
+			callback(new Error("Authentication error"));
 		}
 	}
 
@@ -62,11 +65,11 @@ class SMTPServerManager {
 	 */
 	handleRcptTo(address, session, callback) {
 		const domain = address.address.split("@")[1]?.toLowerCase();
-		
+
 		if (this.config.allowedDomains.includes(domain)) {
 			return callback();
 		}
-		
+
 		return callback(
 			new Error("Relay access denied: recipient domain not allowed")
 		);
@@ -80,7 +83,7 @@ class SMTPServerManager {
 	 */
 	async handleData(stream, session, callback) {
 		let rawChunks = [];
-		
+
 		stream.on("data", (chunk) => rawChunks.push(chunk));
 
 		stream.on("end", async () => {
@@ -104,7 +107,9 @@ class SMTPServerManager {
 		}
 
 		this.server.listen(this.config.port, this.config.host, () => {
-			console.log(`📬 SMTP Server running on ${this.config.host}:${this.config.port}`);
+			console.log(
+				`📬 SMTP Server running on ${this.config.host}:${this.config.port}`
+			);
 		});
 	}
 

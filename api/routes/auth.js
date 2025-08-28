@@ -5,13 +5,13 @@
 
 const express = require("express");
 const router = express.Router();
-const emailService = require("../../services/emailService");
+const userService = require("../../services/userService");
 
 /**
  * POST /auth/login
  * Authenticate user with username/email and API key
  */
-router.post("/login", (req, res) => {
+router.post("/login", async (req, res) => {
 	const { username, email, apiKey } = req.body;
 
 	// Support both username and email fields
@@ -24,21 +24,28 @@ router.post("/login", (req, res) => {
 		});
 	}
 
-	// Validate user and API key
-	const userConfig = emailService.validateUser(userEmail, apiKey);
+	// Fetch user first
+	const userConfig = await userService.findByEmail(userEmail);
+
+	if (!userConfig) {
+		return res.status(401).json({
+			success: false,
+			error: "Invalid username/email",
+		});
+	}
 
 	// Check if account is active
-	if (userConfig && userConfig.isActive === false) {
+	if (userConfig.isActive === false) {
 		return res.status(403).json({
 			success: false,
 			error: "Your Account is disabled, contact Admin",
 		});
 	}
 
-	if (!userConfig) {
+	if (apiKey && userConfig.apiKey !== apiKey) {
 		return res.status(401).json({
 			success: false,
-			error: "Invalid username/email or API key",
+			error: "Invalid API key",
 		});
 	}
 

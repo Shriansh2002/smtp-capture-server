@@ -13,7 +13,7 @@ const {
 } = require("../utils/dateUtils");
 const { normalizeEmail, isAllowedDomain } = require("../utils/emailUtils");
 const SERVER_CONFIG = require("../config/server");
-const USERS = require("../config/users");
+const userService = require("./userService");
 
 class EmailService {
 	constructor() {
@@ -80,12 +80,11 @@ class EmailService {
 	async sendEmail(emailData, attachments = []) {
 		const { to, subject, text, html, user } = emailData;
 
-		// Validate user and authentication
-		if (!user || !USERS[user]) {
+		// Validate user exists (SMTP auth already done upstream for SMTP flow)
+		const userConfig = await userService.findByEmail(user);
+		if (!userConfig) {
 			throw new Error("Invalid user");
 		}
-
-		const userConfig = USERS[user];
 
 		// Validate recipient domain
 		const toDomain = extractDomain(to);
@@ -285,18 +284,8 @@ class EmailService {
 	 * @param {string} apiKey - API key
 	 * @returns {Object|null} User config or null if invalid
 	 */
-	validateUser(username, apiKey) {
-		if (!username || !USERS[username]) {
-			return null;
-		}
-
-		const userConfig = USERS[username];
-
-		if (apiKey && userConfig.apiKey !== apiKey) {
-			return null;
-		}
-
-		return userConfig;
+	async validateUser(username, apiKey) {
+		return userService.validateApiAuth(username, apiKey);
 	}
 
 	/**

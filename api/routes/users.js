@@ -5,21 +5,16 @@
 
 const express = require("express");
 const router = express.Router();
-const USERS = require("../../config/users");
+const userService = require("../../services/userService");
 
 /**
  * GET /users
  * Get list of all users (without sensitive information)
  */
-router.get("/", (req, res) => {
+router.get("/", async (req, res) => {
 	try {
-		const users = Object.keys(USERS).map(username => ({
-			username,
-			email: username,
-			// Don't expose passwords or API keys in the API
-		}));
-		
-		res.json(users);
+		const users = await userService.listUsers();
+		res.json(users.map((u) => ({ username: u.email, email: u.email })));
 	} catch (error) {
 		console.error("Error fetching users:", error);
 		res.status(500).json({ error: "Internal server error" });
